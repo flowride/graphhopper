@@ -19,6 +19,7 @@ package com.graphhopper.application;
 
 import com.graphhopper.application.cli.ImportCommand;
 import com.graphhopper.application.cli.MatchCommand;
+import com.graphhopper.application.resources.DataFeedResource;
 import com.graphhopper.application.resources.RootResource;
 import com.graphhopper.http.CORSFilter;
 import com.graphhopper.http.GraphHopperBundle;
@@ -50,6 +51,7 @@ public final class GraphHopperApplication extends Application<GraphHopperServerC
     @Override
     public void run(GraphHopperServerConfiguration configuration, Environment environment) {
         environment.jersey().register(new RootResource());
+        environment.jersey().register(DataFeedResource.class);
         environment.jersey().register(NavigateResource.class);
         environment.servlets().addFilter("cors", CORSFilter.class).addMappingForUrlPatterns(EnumSet.allOf(DispatcherType.class), false, "*");
     }
