@@ -43,6 +43,8 @@
     <div id='mvt-menu'>
         <input id='show-graph' type='checkbox' v-model='showGraph' v-on:click='toggleGHMvt'>
         <label for='show-graph'> show GH graph</label>
+        <input id='show-traffic' type='checkbox' v-model='showTraffic' v-on:click='toggleTraffic'>
+        <label for='show-traffic'> trafic (vitesse)</label>
     </div>
     <div id='iso-menu'>
         <select id='isochrone-profile' type='text' v-model='isochroneProfile' @change='updateIsochrone'>

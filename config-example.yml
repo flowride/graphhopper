@@ -107,7 +107,7 @@ graphhopper:
   #   country,curvature,average_slope,max_slope,car_temporal_access,bike_temporal_access,foot_temporal_access
   # Private roads are blocked by default to disable this you can specify (also applies to other access encoded values like bike_access):
   #   car_access|block_private=false
-  graph.encoded_values: car_access, car_average_speed, road_access
+  graph.encoded_values: car_access, car_average_speed, road_access, max_speed
 
   #### Speed, hybrid and flexible mode ####
 
