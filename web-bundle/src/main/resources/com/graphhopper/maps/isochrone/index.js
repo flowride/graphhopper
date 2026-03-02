@@ -21,6 +21,7 @@ var menu = new Vue({
     data: {
         layer: 'raster',
         showGraph: false,
+        showTraffic: true,
         isochroneRadius: 600,
         showSpt: false,
         isochronePoint: undefined,
@@ -36,6 +37,9 @@ var menu = new Vue({
         },
         toggleGHMvt: function (event) {
             setGHMvtVisible(map, event.target.checked);
+        },
+        toggleTraffic: function (event) {
+            setTrafficVisible(map, event.target.checked);
         },
         updateIsochrone: function (event) {
             if (!this.isochronePoint)
@@ -148,6 +152,7 @@ function _drawMap(bbox) {
             }
             // we make sure the map labels stay on top
         }, getFirstSymbolLayer(map));
+        loadTrafficLayer(map);
     });
     map.on('click', function (e) {
         _updateIsochrone(e.lngLat);
@@ -255,6 +260,35 @@ function setGHMvtVisible(map, visible) {
     } else {
         map.setLayoutProperty('gh', 'visibility', 'none');
     }
+}
+
+function setTrafficVisible(map, visible) {
+    if (!map.getLayer('traffic-lines')) return;
+    map.setLayoutProperty('traffic-lines', 'visibility', visible ? 'visible' : 'none');
+}
+
+function loadTrafficLayer(map) {
+    fetch('/datafeed/roads')
+        .then(function (response) { return response.ok ? response.json() : Promise.reject(response.status); })
+        .then(function (geojson) {
+            if (!geojson.features || geojson.features.length === 0) return;
+            if (map.getSource('traffic')) map.removeLayer('traffic-lines'), map.removeSource('traffic');
+            map.addSource('traffic', { type: 'geojson', data: geojson });
+            map.addLayer({
+                id: 'traffic-lines',
+                type: 'line',
+                source: 'traffic',
+                paint: {
+                    'line-color': ['get', 'color'],
+                    'line-width': 4,
+                    'line-opacity': 0.85
+                },
+                layout: {
+                    'visibility': menu.showTraffic ? 'visible' : 'none'
+                }
+            }, getFirstSymbolLayer(map));
+        })
+        .catch(function () { /* no traffic data or endpoint */ });
 }
 
 function getFirstSymbolLayer(map) {
