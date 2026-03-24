@@ -234,6 +234,11 @@ public class DefaultImportRegistry implements ImportRegistry {
                             PMap.toSet(props.getString("restrictions", "")), PMap.toSet(props.getString("barriers", ""))),
                     "roundabout"
             );
+        else if (BusLaneHint.KEY.equals(name))
+            return ImportUnit.create(name, props -> BusLaneHint.create(),
+                    (lookup, props) -> new OSMBusLaneHintParser(lookup.getBooleanEncodedValue(BusLaneHint.KEY))
+            );
+
 
         else if (HovAccess.KEY.equals(name))
             return ImportUnit.create(name, props -> HovAccess.create(),
