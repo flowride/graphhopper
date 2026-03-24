@@ -1,0 +1,98 @@
+# GraphHopper — profils alignés sur otp-tools/fr-ch/graphhopper + bus (openbusrouting) + datafeed trafic (POST /datafeed).
+# Profils: car (autoroute), car_avoid_toll (forte pénalité autoroutes — même logique que otp-tools), eco, bus.
+# Modèles personnalisés: custom_models_fr_ch/ (+ car.json fourni dans le JAR).
+# Lancement exemple:
+#   java -Ddw.graphhopper.datareader.file=region.osm.pbf -jar web/target/graphhopper-web-11.0-SNAPSHOT.jar server config-fr-ch-traffic.yml
+
+graphhopper:
+
+  datareader.file: ""
+  graph.location: graph-cache-fr-ch
+  custom_models.directory: custom_models_fr_ch
+
+  profiles:
+    - name: car
+      turn_costs:
+        vehicle_types: [motorcar, motor_vehicle]
+        u_turn_costs: 60
+      custom_model_files: [car.json]
+
+    - name: car_avoid_toll
+      turn_costs:
+        vehicle_types: [motorcar, motor_vehicle]
+        u_turn_costs: 60
+      custom_model_files: [car_avoid_toll.json]
+
+    - name: eco
+      turn_costs:
+        vehicle_types: [motorcar, motor_vehicle]
+        u_turn_costs: 60
+      custom_model_files: [eco_model.json]
+
+    - name: bus
+      turn_costs:
+        vehicle_types: [bus, motor_vehicle]
+        u_turn_costs: 60
+      custom_model_files: [flowride_bus.json]
+
+  profiles_ch:
+    - profile: car
+    - profile: car_avoid_toll
+    - profile: eco
+    - profile: bus
+
+  profiles_lm: []
+
+  graph.encoded_values: car_access, car_average_speed, road_access, road_class, road_environment, max_speed, surface, curvature, average_slope, bus_access, bus_lane_hint, max_weight, max_width, max_height, ferry_speed
+
+  prepare.ch.threads: 8
+
+  graph.elevation.provider: srtm
+  graph.elevation.cache_dir: ./srtmprovider/
+  graph.elevation.interpolate: bilinear
+
+  prepare.min_network_size: 200
+  prepare.subnetworks.threads: 1
+
+  routing.snap_preventions_default: tunnel, bridge, ferry
+  routing.non_ch.max_waypoint_distance: 1000000
+
+  import.osm.ignored_highways: cycleway
+
+  graph.dataaccess.default_type: RAM_STORE
+
+server:
+  application_connectors:
+  - type: http
+    port: 8989
+    bind_host: localhost
+    max_request_header_size: 50k
+  request_log:
+      appenders: []
+  admin_connectors:
+  - type: http
+    port: 8990
+    bind_host: localhost
+
+logging:
+  appenders:
+    - type: file
+      time_zone: UTC
+      current_log_filename: logs/graphhopper.log
+      log_format: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
+      archive: true
+      archived_log_filename_pattern: ./logs/graphhopper-%d.log.gz
+      archived_file_count: 30
+      never_block: true
+    - type: console
+      time_zone: UTC
+      log_format: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
+  loggers:
+    "com.graphhopper.osm_warnings":
+      level: DEBUG
+      additive: false
+      appenders:
+        - type: file
+          currentLogFilename: logs/osm_warnings.log
+          archive: false
+          logFormat: '[%level] %msg%n'
