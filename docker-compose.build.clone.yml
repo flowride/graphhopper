@@ -1,0 +1,178 @@
+services:
+  clone:
+    image: alpine:3.21
+    working_dir: /work
+    entrypoint: ["sh", "-c"]
+    environment:
+      # Public HTTPS URLs
+      GRAPHOPPER_REPO_URL: "https://github.com/flowride/graphhopper.git"
+      GRAPHOPPER_MAPS_REPO_URL: "https://github.com/flowride/graphhopper-maps.git"
+      GRAPHOPPER_BRANCH: "tomtom_trafic"
+      GRAPHOPPER_MAPS_BRANCH: "tomtom_trafic"
+    volumes:
+      - type: volume
+        source: graphhopper-src
+        target: /work/graphhopper
+      - type: volume
+        source: graphhopper-maps-src
+        target: /work/graphhopper-maps
+    command:
+      - |-
+        set -e
+        apk add --no-cache git ca-certificates >/dev/null
+
+        echo "Cloning graphhopper (full history): $$GRAPHOPPER_REPO_URL ($$GRAPHOPPER_BRANCH)"
+        if [ ! -d /work/graphhopper/.git ]; then
+          rm -rf /work/graphhopper/*
+          git clone --branch "$$GRAPHOPPER_BRANCH" "$$GRAPHOPPER_REPO_URL" /work/graphhopper
+        else
+          cd /work/graphhopper
+          git fetch origin "$$GRAPHOPPER_BRANCH"
+          git checkout -B "$$GRAPHOPPER_BRANCH" FETCH_HEAD
+        fi
+
+        echo "Cloning graphhopper-maps (full history): $$GRAPHOPPER_MAPS_REPO_URL ($$GRAPHOPPER_MAPS_BRANCH)"
+        if [ ! -d /work/graphhopper-maps/.git ]; then
+          rm -rf /work/graphhopper-maps/*
+          git clone --branch "$$GRAPHOPPER_MAPS_BRANCH" "$$GRAPHOPPER_MAPS_REPO_URL" /work/graphhopper-maps
+        else
+          cd /work/graphhopper-maps
+          git fetch origin "$$GRAPHOPPER_MAPS_BRANCH"
+          git checkout -B "$$GRAPHOPPER_MAPS_BRANCH" FETCH_HEAD
+        fi
+
+        echo "Done."
+
+  custom-models:
+    image: alpine:3.21
+    working_dir: /work/graphhopper
+    entrypoint: ["sh", "-c"]
+    volumes:
+      - type: volume
+        source: graphhopper-src
+        target: /work/graphhopper
+    command:
+      - |-
+        set -e
+        mkdir -p /work/graphhopper/custom_models_fr_ch
+        cat >/work/graphhopper/custom_models_fr_ch/car_avoid_toll.json <<'EOF'
+        {"distance_influence":90,"speed":[{"if":"true","limit_to":"car_average_speed"}],"priority":[{"if":"!car_access","multiply_by":"0"},{"if":"road_access == DESTINATION || road_access == PRIVATE","multiply_by":"0.1"},{"if":"road_class == MOTORWAY","multiply_by":"0.1"}]}
+        EOF
+        cat >/work/graphhopper/custom_models_fr_ch/eco_model.json <<'EOF'
+        {"speed":[{"if":"true","limit_to":"car_average_speed"},{"if":"road_class == MOTORWAY","multiply_by":"0.8"},{"if":"surface == PAVED","multiply_by":"1.2"},{"if":"average_slope > 5","multiply_by":"0.7"},{"if":"average_slope > 3 && average_slope <= 5","multiply_by":"0.9"},{"if":"curvature < 0.7","multiply_by":"1.2"}],"priority":[{"if":"!car_access","multiply_by":"0"},{"if":"road_access == DESTINATION || road_access == PRIVATE","multiply_by":"0.1"},{"if":"road_class == MOTORWAY","multiply_by":"0.8"},{"if":"surface == PAVED","multiply_by":"1.3"},{"if":"curvature < 0.7","multiply_by":"1.2"},{"if":"average_slope > 5","multiply_by":"0.7"},{"else":"","multiply_by":"1.0"}],"distance_influence":50}
+        EOF
+        cat >/work/graphhopper/custom_models_fr_ch/flowride_bus.json <<'EOF'
+        {
+          "distance_influence": 90,
+          "priority": [
+            { "if": "max_weight < 5 || max_width < 3 || max_height < 4", "multiply_by": "0" },
+            { "if": "!bus_access", "multiply_by": "0" },
+            { "if": "road_class == BUSWAY", "multiply_by": "1.2" },
+            { "if": "bus_lane_hint", "multiply_by": "1.05" },
+            { "if": "road_class == MOTORWAY || road_class == TRUNK || road_class == PRIMARY || road_class == SECONDARY || road_class == TERTIARY || road_class == UNCLASSIFIED || road_class == LIVING_STREET || road_class == RESIDENTIAL || road_class == SERVICE || road_class == ROAD", "multiply_by": "1" },
+            { "else": "", "multiply_by": "0" }
+          ],
+          "speed": [
+            { "if": "road_environment == FERRY", "limit_to": "ferry_speed" },
+            { "else_if": "bus_access && car_average_speed < 10", "limit_to": "10" },
+            { "else": "", "limit_to": "car_average_speed * 0.9" },
+            { "if": "true", "limit_to": "max_speed * 0.9" },
+            { "if": "true", "limit_to": "100" }
+          ]
+        }
+        EOF
+        echo "custom_models_fr_ch created"
+    depends_on:
+      clone:
+        condition: service_completed_successfully
+
+  graphhopper-maps-build:
+    image: node:24-bookworm
+    working_dir: /work/graphhopper-maps
+    volumes:
+      - type: volume
+        source: graphhopper-maps-src
+        target: /work/graphhopper-maps
+      - type: volume
+        source: npm-cache
+        target: /root/.npm
+    command:
+      [
+        "bash",
+        "-lc",
+        "set -euo pipefail && git config --global --add safe.directory /work/graphhopper-maps && npm version --git-tag-version=false 0.0.0-local && node -e \"const fs=require('fs'); const p=require('./package.json'); p.files=['dist/']; p.name='@graphhopper/graphhopper-maps-bundle'; fs.writeFileSync('package.json', JSON.stringify(p,null,4));\" && npm ci && npm run build && node -e \"const fs=require('fs'); const p=require('./package.json'); p.scripts={}; p.dependencies={}; p.devDependencies={}; fs.writeFileSync('package.json', JSON.stringify(p,null,4));\" && npm pack",
+      ]
+    depends_on:
+      clone:
+        condition: service_completed_successfully
+
+  graphhopper-build:
+    image: maven:3.9.9-eclipse-temurin-17
+    working_dir: /work/graphhopper
+    volumes:
+      - type: volume
+        source: graphhopper-src
+        target: /work/graphhopper
+      # Mount maps next to it so -Plocal-maps resolves ../graphhopper-maps
+      - type: volume
+        source: graphhopper-maps-src
+        target: /work/graphhopper-maps
+      - type: volume
+        source: m2-cache
+        target: /root/.m2
+    environment:
+      MAVEN_OPTS: "-Dmaven.repo.local=/root/.m2/repository"
+    command:
+      [
+        "bash",
+        "-lc",
+        "mvn -pl web,web-bundle -am -Plocal-maps -Dgraphhopper.maps.pack.skip=true clean package -DskipTests",
+      ]
+    depends_on:
+      graphhopper-maps-build:
+        condition: service_completed_successfully
+      custom-models:
+        condition: service_completed_successfully
+
+  graphhopper-image:
+    image: docker:28.5.1-cli
+    working_dir: /work/graphhopper
+    entrypoint: ["sh", "-c"]
+    environment:
+      IMAGE_TAG: "ghcr.io/flowride/graphhopper:tomtom_trafic"
+    volumes:
+      - type: volume
+        source: graphhopper-src
+        target: /work/graphhopper
+      # access host docker daemon to build/tag the image
+      - type: bind
+        source: /var/run/docker.sock
+        target: /var/run/docker.sock
+    command:
+      - |-
+        set -e
+        test -f web/target/graphhopper-web-11.0-SNAPSHOT.jar
+        echo "Building runtime image: $${IMAGE_TAG}"
+        docker build --no-cache -t "$${IMAGE_TAG}" -f- . <<'EOF'
+        FROM eclipse-temurin:17-jre
+        WORKDIR /opt/graphhopper
+        ENV JAVA_OPTS=""
+        ENV DW_GRAPHOPPER_DATAREADER_FILE=""
+        ENV DW_GRAPHOPPER_GRAPH_LOCATION="/data/graph-cache"
+        COPY web/target/graphhopper-web-11.0-SNAPSHOT.jar /opt/graphhopper/graphhopper-web.jar
+        # optional custom models if present
+        COPY custom_models_fr_ch/ /opt/graphhopper/custom_models_fr_ch/
+        EXPOSE 8989 8990
+        ENTRYPOINT ["bash","-lc","exec java $JAVA_OPTS -Ddw.graphhopper.datareader.file=$DW_GRAPHOPPER_DATAREADER_FILE -Ddw.graphhopper.graph.location=$DW_GRAPHOPPER_GRAPH_LOCATION -jar /opt/graphhopper/graphhopper-web.jar server /run/configs/graphhopper.yml"]
+        EOF
+        docker image inspect "$${IMAGE_TAG}" >/dev/null
+        echo "OK: tagged $${IMAGE_TAG}"
+    depends_on:
+      graphhopper-build:
+        condition: service_completed_successfully
+
+volumes:
+  graphhopper-src:
+  graphhopper-maps-src:
+  m2-cache:
+  npm-cache:

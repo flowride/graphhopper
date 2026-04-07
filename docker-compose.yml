@@ -1,0 +1,48 @@
+version: "3.9"
+
+services:
+  graphhopper:
+    image: graphhopper-local:11.0
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        GRAPHHOPPER_MAPS_REPO: https://github.com/flowride/graphhopper-maps.git
+        GRAPHHOPPER_MAPS_BRANCH: tomtom_trafic
+    ports:
+      - target: 8989
+        published: 8989
+        protocol: tcp
+        mode: ingress
+      - target: 8990
+        published: 8990
+        protocol: tcp
+        mode: ingress
+    environment:
+      # Override these at deploy time as needed
+      DW_GRAPHOPPER_DATAREADER_FILE: "/data/genevois.osm.pbf"
+      DW_GRAPHOPPER_GRAPH_LOCATION: "/data/graph-cache-fr-ch"
+      JAVA_OPTS: "-Xmx6g"
+    configs:
+      - source: graphhopper_config_fr_ch_traffic
+        target: /run/configs/graphhopper.yml
+        mode: 0444
+    volumes:
+      # Data and graph cache can be volumes/binds; the config must NOT be a volume (it is a Swarm config above).
+      - graphhopper-data:/data
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+      resources:
+        reservations:
+          memory: 2G
+        limits:
+          memory: 10G
+
+configs:
+  graphhopper_config_fr_ch_traffic:
+    file: ./config-fr-ch-traffic.yml
+
+volumes:
+  graphhopper-data:

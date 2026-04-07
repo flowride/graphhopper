@@ -1,0 +1,1 @@
+java -Ddw.graphhopper.datareader.file=/home/epascal/Projects/chtrafic/genevois.osm.pbf -Ddw.graphhopper.graph.location=/tmp/gh-frch-test -Ddw.graphhopper.custom_models.directory=/home/epascal/Projects/graphhopper/custom_models_fr_ch -jar web/target/graphhopper-web-11.0-SNAPSHOT.jar server config-otp-tools-bus.yml

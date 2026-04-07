@@ -1,14 +1,15 @@
-# GraphHopper — profils alignés sur otp-tools/fr-ch/graphhopper + bus (openbusrouting) + datafeed trafic (POST /datafeed).
-# Profils: car (autoroute), car_avoid_toll (forte pénalité autoroutes — même logique que otp-tools), eco, bus.
-# Modèles personnalisés: custom_models_fr_ch/ (+ car.json fourni dans le JAR).
-# Lancement exemple:
-#   java -Ddw.graphhopper.datareader.file=region.osm.pbf -jar web/target/graphhopper-web-11.0-SNAPSHOT.jar server config-fr-ch-traffic.yml
-
 graphhopper:
 
   datareader.file: ""
-  graph.location: graph-cache-fr-ch
+  graph.location: graph-cache
   custom_models.directory: custom_models_fr_ch
+
+  # Keep geocoding behavior from otp-tools config
+  services:
+    - geocoding
+  geocoding:
+    enabled: true
+    datareader_file: "/home/epascal/Projects/chtrafic/genevois.osm.pbf"
 
   profiles:
     - name: car
@@ -22,6 +23,9 @@ graphhopper:
         vehicle_types: [motorcar, motor_vehicle]
         u_turn_costs: 60
       custom_model_files: [car_avoid_toll.json]
+
+    - name: foot
+      custom_model_files: [foot_local.json, foot_elevation_local.json]
 
     - name: eco
       turn_costs:
@@ -38,41 +42,35 @@ graphhopper:
   profiles_ch:
     - profile: car
     - profile: car_avoid_toll
+    - profile: foot
     - profile: eco
     - profile: bus
 
   profiles_lm: []
 
-  graph.encoded_values: car_access, car_average_speed, road_access, road_class, road_environment, max_speed, surface, curvature, average_slope, bus_access, bus_lane_hint, max_weight, max_width, max_height, ferry_speed
+  # Merge otp-tools + bus-related encoded values
+  graph.encoded_values: car_access,car_average_speed,foot_access,country,hike_rating,foot_priority,foot_average_speed,average_slope,bike_priority,bike_access,roundabout,bike_average_speed,racingbike_priority,racingbike_access,racingbike_average_speed,mtb_priority,mtb_access,mtb_average_speed,mtb_rating,road_access,road_class,road_environment,surface,curvature,max_speed,bus_access,bus_lane_hint,max_weight,max_width,max_height,ferry_speed
 
   prepare.ch.threads: 8
-
   graph.elevation.provider: srtm
-  graph.elevation.cache_dir: ./srtmprovider/
-  graph.elevation.interpolate: bilinear
-
   prepare.min_network_size: 200
   prepare.subnetworks.threads: 1
-
-  routing.snap_preventions_default: tunnel, bridge, ferry
   routing.non_ch.max_waypoint_distance: 1000000
-
   import.osm.ignored_highways: cycleway
-
   graph.dataaccess.default_type: RAM_STORE
 
 server:
   application_connectors:
-  - type: http
-    port: 8989
-    bind_host: 0.0.0.0
-    max_request_header_size: 50k
+    - type: http
+      port: 8989
+      bind_host: 0.0.0.0
+      max_request_header_size: 50k
   request_log:
-      appenders: []
+    appenders: []
   admin_connectors:
-  - type: http
-    port: 8990
-    bind_host: 0.0.0.0
+    - type: http
+      port: 8990
+      bind_host: 0.0.0.0
 
 logging:
   appenders:
@@ -95,4 +93,4 @@ logging:
         - type: file
           currentLogFilename: logs/osm_warnings.log
           archive: false
-          logFormat: '[%level] %msg%n'
+          logFormat: "[%level] %msg%n"

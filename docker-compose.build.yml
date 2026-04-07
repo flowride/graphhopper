@@ -1,0 +1,49 @@
+services:
+  graphhopper-maps-build:
+    image: node:24-bookworm
+    working_dir: /work/graphhopper-maps
+    volumes:
+      # repos are side-by-side on the host; mount graphhopper-maps
+      - type: bind
+        source: ../graphhopper-maps
+        target: /work/graphhopper-maps
+      # cache npm for faster rebuilds
+      - type: volume
+        source: npm-cache
+        target: /root/.npm
+    command:
+      [
+        "bash",
+        "-lc",
+        "git config --global --add safe.directory /work/graphhopper-maps && ./scripts/pack-for-graphhopper.sh",
+      ]
+
+  graphhopper-build:
+    image: maven:3.9.9-eclipse-temurin-17
+    working_dir: /work/graphhopper
+    volumes:
+      # mount graphhopper
+      - type: bind
+        source: .
+        target: /work/graphhopper
+      # mount graphhopper-maps next to it so -Plocal-maps resolves ../graphhopper-maps
+      - type: bind
+        source: ../graphhopper-maps
+        target: /work/graphhopper-maps
+      # cache maven repository for faster rebuilds
+      - type: volume
+        source: m2-cache
+        target: /root/.m2
+    environment:
+      MAVEN_OPTS: "-Dmaven.repo.local=/root/.m2/repository"
+    # Note: run graphhopper-maps-build first (it creates graphhopper-graphhopper-maps-bundle-0.0.0-local.tgz)
+    command:
+      [
+        "bash",
+        "-lc",
+        "mvn -pl web,web-bundle -am -Plocal-maps -Dgraphhopper.maps.pack.skip=true clean package -DskipTests",
+      ]
+
+volumes:
+  m2-cache:
+  npm-cache:
