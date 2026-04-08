@@ -1,14 +1,15 @@
-# GraphHopper — profils alignés sur otp-tools/fr-ch/graphhopper + bus (openbusrouting) + datafeed trafic (POST /datafeed).
-# Profils: car (autoroute), car_avoid_toll (forte pénalité autoroutes — même logique que otp-tools), eco, bus.
-# Modèles personnalisés: custom_models_fr_ch/ (+ car.json fourni dans le JAR).
-# Lancement exemple:
-#   java -Ddw.graphhopper.datareader.file=region.osm.pbf -jar web/target/graphhopper-web-11.0-SNAPSHOT.jar server config-fr-ch-traffic.yml
+# GraphHopper — trafic / datafeed + profils bus (ex. déploiement Flowride FR-CH).
+# Les chemins OSM et le répertoire du graphe réels viennent des variables DW_GRAPHOPPER_* à l’exécution
+# (ex. france-switzerland.osm.pbf et ...-gh côté otp-tools ; autres pays : autres noms sous /data).
+# Modèles : custom_models_fr_ch/ dans l’image (+ car.json dans le JAR) ; monter /data/custom_models_* selon la région.
+# Exemple:
+#   java -Ddw.graphhopper.datareader.file=region.osm.pbf -jar ... server config-fr-ch-traffic.yml
 
 graphhopper:
 
   datareader.file: ""
-  graph.location: graph-cache-fr-ch
-  custom_models.directory: custom_models_fr_ch
+  graph.location: graph-cache
+  custom_models.directory: "/data/custom_models_fr_ch"
 
   profiles:
     - name: car

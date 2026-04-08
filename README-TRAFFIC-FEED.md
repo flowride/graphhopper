@@ -24,18 +24,22 @@ cd graphhopper-traffic
 mvn clean package -DskipTests
 ```
 
-- **Avec couche trafic sur la page /maps** (bundle local patché) : cloner graphhopper-maps au même niveau que graphhopper-traffic, puis compiler avec le profil `local-maps` :
+- **Avec couche trafic sur la page /maps** (fork [flowride/graphhopper-maps](https://github.com/flowride/graphhopper-maps), branche `tomtom_trafic`) : préférer **une seule passe Docker** qui clone la branche, construit le bundle npm et embarque le `.tgz` dans le JAR :
 
 ```bash
-cd chtrafic
-git clone https://github.com/graphhopper/graphhopper-maps.git
-cd graphhopper-traffic
-mvn clean package -DskipTests -Plocal-maps
+docker build -t ghcr.io/flowride/graphhopper:tomtom_trafic .
+# optional: --build-arg GRAPHHOPPER_MAPS_BRANCH=tomtom_trafic
 ```
 
-Le profil `-Plocal-maps` utilise le tgz déjà présent dans `web-bundle/target/` (à préparer avec `npm run build && npm pack --pack-destination=../graphhopper-traffic/web-bundle/target` dans le clone). Le bundle patché ajoute une couche « Trafic (vitesse) » (toggle dans les options de la carte) affichant les segments de GET /datafeed/roads avec un dégradé rouge–orange–vert.
+- **Build Maven hors Docker** avec le même bundle : produire `graphhopper-graphhopper-maps-bundle-0.0.0-local.tgz` (dans un clone de `graphhopper-maps` : `npm ci && npm run build` puis `npm pack` comme dans le Dockerfile), puis le placer sous **`graphhopper-maps-bundle/`** à la racine du dépôt GraphHopper, et lancer :
 
-**Important :** pour conserver la case « Trafic (vitesse) » sur /maps, **toujours** lancer `mvn package` avec `-Plocal-maps`. Sans ce profil, le JAR reprend le bundle npm par défaut et la case disparaît.
+```bash
+mvn clean package -DskipTests -Pprebuilt-maps
+```
+
+Le profil `-Pprebuilt-maps` lit ce `.tgz` et ignore le téléchargement npm par défaut. Sans ce profil, le JAR reprend le bundle npm du registre et la couche trafic custom sur `/maps` n’est pas celle du fork.
+
+**Important :** pour la couche « Trafic (vitesse) » sur `/maps`, utiliser l’image Docker ci-dessus ou `-Pprebuilt-maps` avec le `.tgz` au bon emplacement.
 
 Le JAR exécutable (fat JAR) est généré dans :
 
@@ -72,7 +76,7 @@ Compatible avec le script `push-graphhopper.ts` du projet chtrafic (tuiles TomTo
 - `web/src/main/java/com/graphhopper/application/resources/DataFeedResource.java` — POST /datafeed et GET /datafeed/roads (relative_speed / max_speed).
 - `web/src/main/java/com/graphhopper/application/GraphHopperApplication.java` — enregistrement de `DataFeedResource`.
 - `config-example.yml` — `graph.encoded_values` inclut `max_speed` pour le coefficient de ralentissement.
-- `web-bundle/pom.xml` — propriété `graphhopper.maps.useLocal`, profil `local-maps` pour build du clone graphhopper-maps.
+- `web-bundle/pom.xml` — propriété `graphhopper.maps.useLocal`, profil `prebuilt-maps` pour un `.tgz` fourni (Docker ou `graphhopper-maps-bundle/`).
 - Clone **graphhopper-maps** : `package.json` (name/version pour tgz local), `src/layers/UseTrafficLayer.tsx`, actions/stores/MapOptions pour le toggle « Trafic (vitesse) » sur /maps.
 
 ## Note CH et trafic

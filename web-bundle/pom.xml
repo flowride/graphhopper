@@ -8,12 +8,11 @@
     <version>11.0-SNAPSHOT</version>
     <properties>
         <graphhopper-maps.version>0.0.0-f171bcf55e447bf494348dd274cd377b73c951f6</graphhopper-maps.version>
-        <!-- When true (e.g. profile -Plocal-maps), use local graphhopper-maps clone instead of npm pack from registry -->
+        <!-- When true (profile -Pprebuilt-maps), skip npm registry fetch and use graphhopperMapsBundleTgz instead. -->
         <graphhopper.maps.useLocal>false</graphhopper.maps.useLocal>
-        <!-- Chemin du tgz: par défaut target/ (téléchargé); avec -Plocal-maps = clone graphhopper-maps -->
-        <!-- Underscore name: antrun passes ${...} to Ant, which breaks dotted property names (graphhopper.maps...). -->
+        <!-- Default tgz path: frontend-maven-plugin downloads to target/. Underscore name: antrun passes ${...} to Ant. -->
         <graphhopperMapsBundleTgz>${basedir}/target/graphhopper-graphhopper-maps-bundle-${graphhopper-maps.version}.tgz</graphhopperMapsBundleTgz>
-        <!-- When true, do not run graphhopper-maps "pack" step (use pre-built tgz). Useful in containerized builds. -->
+        <!-- When true, do not run any graphhopper-maps pack step (use pre-built tgz at graphhopperMapsBundleTgz). -->
         <graphhopper.maps.pack.skip>false</graphhopper.maps.pack.skip>
     </properties>
     <name>GraphHopper Dropwizard Bundle</name>
@@ -204,41 +203,15 @@
     </build>
 
     <profiles>
+        <!-- Pre-built graphhopper-maps .tgz (e.g. Docker stage clones branch, npm pack; place file under reactor root). -->
         <profile>
-            <id>local-maps</id>
+            <id>prebuilt-maps</id>
             <properties>
                 <graphhopper.maps.useLocal>true</graphhopper.maps.useLocal>
+                <graphhopper.maps.pack.skip>true</graphhopper.maps.pack.skip>
                 <graphhopper-maps.version>0.0.0-local</graphhopper-maps.version>
-                <!-- Use maven.multiModuleProjectDirectory so antrun gets a fully resolved path (Ant misparses ${project.parent...}). -->
-                <graphhopperMapsRootDir>${maven.multiModuleProjectDirectory}/../graphhopper-maps</graphhopperMapsRootDir>
-                <graphhopperMapsBundleTgz>${graphhopperMapsRootDir}/graphhopper-graphhopper-maps-bundle-${graphhopper-maps.version}.tgz</graphhopperMapsBundleTgz>
+                <graphhopperMapsBundleTgz>${maven.multiModuleProjectDirectory}/graphhopper-maps-bundle/graphhopper-graphhopper-maps-bundle-${graphhopper-maps.version}.tgz</graphhopperMapsBundleTgz>
             </properties>
-            <build>
-                <plugins>
-                    <plugin>
-                        <groupId>org.codehaus.mojo</groupId>
-                        <artifactId>exec-maven-plugin</artifactId>
-                        <version>3.5.0</version>
-                        <executions>
-                            <execution>
-                                <id>pack-local-graphhopper-maps</id>
-                                <phase>generate-resources</phase>
-                                <goals>
-                                    <goal>exec</goal>
-                                </goals>
-                                <configuration>
-                                    <skip>${graphhopper.maps.pack.skip}</skip>
-                                    <executable>bash</executable>
-                                    <workingDirectory>${graphhopperMapsRootDir}</workingDirectory>
-                                    <arguments>
-                                        <argument>${graphhopperMapsRootDir}/scripts/pack-for-graphhopper.sh</argument>
-                                    </arguments>
-                                </configuration>
-                            </execution>
-                        </executions>
-                    </plugin>
-                </plugins>
-            </build>
         </profile>
     </profiles>
 </project>

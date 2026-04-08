@@ -19,9 +19,9 @@ services:
         protocol: tcp
         mode: ingress
     environment:
-      # Override these at deploy time as needed
-      DW_GRAPHOPPER_DATAREADER_FILE: "/data/genevois.osm.pbf"
-      DW_GRAPHOPPER_GRAPH_LOCATION: "/data/graph-cache-fr-ch"
+      # Examples only: set DW_* to your region’s PBF and graph directory (e.g. france-switzerland on otp-tools).
+      DW_GRAPHOPPER_DATAREADER_FILE: "/data/region.osm.pbf"
+      DW_GRAPHOPPER_GRAPH_LOCATION: "/data/graph-cache"
       JAVA_OPTS: "-Xmx6g"
     configs:
       - source: graphhopper_config_fr_ch_traffic

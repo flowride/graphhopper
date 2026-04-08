@@ -1,7 +1,9 @@
 # syntax=docker/dockerfile:1.6
-# UI embarquée avec couche trafic : clone du fork graphhopper-maps (branche configurable).
-# Build: docker compose build graphhopper
-#        (ou) docker buildx build -t graphhopper-local:11.0 .
+# Single-pass image: clone graphhopper-maps (branch), npm pack, then Maven -Pprebuilt-maps.
+# Build:
+#   docker build -t ghcr.io/flowride/graphhopper:tomtom_trafic .
+# Optional: --build-arg GRAPHHOPPER_MAPS_REPO=... GRAPHHOPPER_MAPS_BRANCH=tomtom_trafic
+# Local stack: docker compose -f docker-compose.yml build
 
 FROM node:24-bookworm AS maps-bundle
 ARG GRAPHHOPPER_MAPS_REPO=https://github.com/flowride/graphhopper-maps.git
@@ -46,9 +48,9 @@ COPY example/pom.xml example/pom.xml
 RUN mvn -q -DskipTests -pl web -am dependency:go-offline
 
 COPY . .
-RUN mkdir -p /graphhopper-maps
-COPY --from=maps-bundle /maps/graphhopper-graphhopper-maps-bundle-0.0.0-local.tgz /graphhopper-maps/
-RUN mvn -q -DskipTests -pl web -am -Plocal-maps -Dgraphhopper.maps.pack.skip=true package
+RUN mkdir -p /src/graphhopper-maps-bundle
+COPY --from=maps-bundle /maps/graphhopper-graphhopper-maps-bundle-0.0.0-local.tgz /src/graphhopper-maps-bundle/
+RUN mvn -q -DskipTests -pl web -am -Pprebuilt-maps package
 
 FROM eclipse-temurin:17-jre
 
@@ -56,6 +58,7 @@ WORKDIR /opt/graphhopper
 
 ENV JAVA_OPTS=""
 ENV DW_GRAPHOPPER_DATAREADER_FILE=""
+# Override at deploy time (PBF path and graph folder depend on the region).
 ENV DW_GRAPHOPPER_GRAPH_LOCATION="/data/graph-cache"
 
 COPY --from=build /src/web/target/graphhopper-web-*.jar /opt/graphhopper/graphhopper-web.jar
