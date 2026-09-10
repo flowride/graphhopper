@@ -39,21 +39,26 @@ graphhopper:
         u_turn_costs: 60
       custom_model_files: [flowride_bus.json]
 
+    - name: boat
+      custom_model_files: [flowride_boat.json]
+
   profiles_ch:
     - profile: car
     - profile: car_avoid_toll
     - profile: foot
     - profile: eco
     - profile: bus
+    - profile: boat
 
   profiles_lm: []
 
-  # Merge otp-tools + bus-related encoded values
-  graph.encoded_values: car_access,car_average_speed,foot_access,country,hike_rating,foot_priority,foot_average_speed,average_slope,bike_priority,bike_access,roundabout,bike_average_speed,racingbike_priority,racingbike_access,racingbike_average_speed,mtb_priority,mtb_access,mtb_average_speed,mtb_rating,road_access,road_class,road_environment,surface,curvature,max_speed,bus_access,bus_lane_hint,max_weight,max_width,max_height,ferry_speed
+  # Merge otp-tools + bus/boat-related encoded values
+  graph.encoded_values: car_access,car_average_speed,foot_access,country,hike_rating,foot_priority,foot_average_speed,average_slope,bike_priority,bike_access,roundabout,bike_average_speed,racingbike_priority,racingbike_access,racingbike_average_speed,mtb_priority,mtb_access,mtb_average_speed,mtb_rating,road_access,road_class,road_environment,surface,curvature,max_speed,bus_access,bus_lane_hint,max_weight,max_width,max_height,ferry_speed,boat_access,boat_average_speed
 
   prepare.ch.threads: 8
   graph.elevation.provider: srtm
-  prepare.min_network_size: 200
+  # Keep small ferry/fairway islands routable for the boat profile (was 200).
+  prepare.min_network_size: 10
   prepare.subnetworks.threads: 1
   routing.non_ch.max_waypoint_distance: 1000000
   import.osm.ignored_highways: cycleway

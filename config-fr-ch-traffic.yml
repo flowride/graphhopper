@@ -36,15 +36,19 @@ graphhopper:
         u_turn_costs: 60
       custom_model_files: [flowride_bus.json]
 
+    - name: boat
+      custom_model_files: [flowride_boat.json]
+
   profiles_ch:
     - profile: car
     - profile: car_avoid_toll
     - profile: eco
     - profile: bus
+    - profile: boat
 
   profiles_lm: []
 
-  graph.encoded_values: car_access, car_average_speed, road_access, road_class, road_environment, max_speed, surface, curvature, average_slope, bus_access, bus_lane_hint, max_weight, max_width, max_height, ferry_speed
+  graph.encoded_values: car_access, car_average_speed, road_access, road_class, road_environment, max_speed, surface, curvature, average_slope, bus_access, bus_lane_hint, max_weight, max_width, max_height, ferry_speed, boat_access, boat_average_speed
 
   prepare.ch.threads: 8
 
@@ -52,7 +56,8 @@ graphhopper:
   graph.elevation.cache_dir: ./srtmprovider/
   graph.elevation.interpolate: bilinear
 
-  prepare.min_network_size: 200
+  # Keep small ferry/fairway islands routable for the boat profile (was 200).
+  prepare.min_network_size: 10
   prepare.subnetworks.threads: 1
 
   routing.snap_preventions_default: tunnel, bridge, ferry

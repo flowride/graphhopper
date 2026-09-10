@@ -1,0 +1,11 @@
+{
+  "distance_influence": 200,
+  "priority": [
+    { "if": "boat_access", "multiply_by": "1" },
+    { "else": "", "multiply_by": "0" }
+  ],
+  "speed": [
+    { "if": "road_environment == FERRY", "limit_to": "ferry_speed" },
+    { "else": "", "limit_to": "boat_average_speed" }
+  ]
+}

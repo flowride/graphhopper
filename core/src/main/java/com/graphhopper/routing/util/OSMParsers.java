@@ -83,8 +83,43 @@ public class OSMParsers {
             return true;
         else if ("platform".equals(way.getTag("railway")))
             return true;
+        else if (isNavigableWaterway(way))
+            // boat profile: import fairways/canals/locks/docks and explicitly boat-tagged rivers
+            return true;
         else
             return false;
+    }
+
+    /**
+     * Returns true for OSM waterways that the boat profile may route on.
+     * Streams, drains, ditches and rapids are excluded. Rivers require an
+     * explicit permissive boat/motorboat/ship tag.
+     *
+     * @param way OSM way
+     * @return true when the waterway should be imported for boat routing
+     */
+    static boolean isNavigableWaterway(ReaderWay way) {
+        String waterway = way.getTag("waterway");
+        if (waterway == null)
+            return false;
+        if ("fairway".equals(waterway) || "tidal_channel".equals(waterway)
+                || "canal".equals(waterway) || "lock".equals(waterway) || "dock".equals(waterway))
+            return true;
+        if ("river".equals(waterway)) {
+            String boat = firstBoatAccessTag(way);
+            return "yes".equals(boat) || "designated".equals(boat)
+                    || "official".equals(boat) || "permissive".equals(boat);
+        }
+        return false;
+    }
+
+    private static String firstBoatAccessTag(ReaderWay way) {
+        for (String key : new String[]{"ship", "motorboat", "boat"}) {
+            String value = way.getTag(key);
+            if (value != null && !value.isEmpty())
+                return value;
+        }
+        return "";
     }
 
     public IntsRef handleRelationTags(ReaderRelation relation, IntsRef relFlags) {

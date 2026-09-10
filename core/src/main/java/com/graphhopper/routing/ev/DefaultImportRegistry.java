@@ -238,6 +238,15 @@ public class DefaultImportRegistry implements ImportRegistry {
             return ImportUnit.create(name, props -> BusLaneHint.create(),
                     (lookup, props) -> new OSMBusLaneHintParser(lookup.getBooleanEncodedValue(BusLaneHint.KEY))
             );
+        else if (BoatAccess.KEY.equals(name))
+            return ImportUnit.create(name, props -> BoatAccess.create(),
+                    (lookup, props) -> new OSMBoatAccessParser(lookup.getBooleanEncodedValue(BoatAccess.KEY))
+            );
+        else if (BoatAverageSpeed.KEY.equals(name))
+            return ImportUnit.create(name, props -> BoatAverageSpeed.create(),
+                    (lookup, props) -> new OSMBoatAverageSpeedParser(lookup),
+                    "ferry_speed"
+            );
 
 
         else if (HovAccess.KEY.equals(name))
