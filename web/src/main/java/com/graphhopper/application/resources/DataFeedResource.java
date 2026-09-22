@@ -57,8 +57,10 @@ import java.util.concurrent.locks.ReentrantLock;
  * POST /datafeed with JSON body: [{"id":"1","points":[[lon,lat]],"value":50,"value_type":"speed","mode":"REPLACE"}, ...]
  * Points are in GeoJSON order (longitude, latitude). Each point of the polyline is snapped to find edges.
  * <p>
- * value_type: "speed" — value in km/h, applied as-is (capped) to each edge.
- * value_type: "relative_speed" — value in [0, 1] (slowdown coefficient); per-edge speed = value * max_speed (max_speed from graph or 120 km/h).
+ * value_type: "speed" — value is the measured speed in km/h. Optional relative_speed is the TomTom
+ * coefficient in [0, 1]. Per edge, the measured speed is kept when it is below the OSM max speed;
+ * when it is above, the coefficient is applied to that OSM speed so the result does not exceed it.
+ * value_type: "relative_speed" — value in [0, 1]; per-edge speed = value * max_speed (max_speed from the graph or 120 km/h).
  */
 @Path("datafeed")
 public class DataFeedResource {
@@ -134,10 +136,17 @@ public class DataFeedResource {
                     continue;
                 }
                 boolean isRelativeSpeed = "relative_speed".equalsIgnoreCase(valueType);
+                Double relativeField = entry.getRelative_speed();
+                boolean hasCompanionRelative = relativeField != null && Double.isFinite(relativeField) && relativeField >= 0 && relativeField <= 1;
                 if ("speed".equalsIgnoreCase(valueType)) {
                     if (!Double.isFinite(value) || value < 0) {
                         errBadValue++;
                         logger.warn("Datafeed error [bad_value]: {} — value must be finite and >= 0", entryCtx);
+                        continue;
+                    }
+                    if (relativeField != null && !hasCompanionRelative) {
+                        errBadValue++;
+                        logger.warn("Datafeed error [bad_value]: {} — relative_speed must be finite and in [0, 1]", entryCtx);
                         continue;
                     }
                 } else if (isRelativeSpeed) {
@@ -170,43 +179,27 @@ public class DataFeedResource {
                     continue;
                 }
 
-                // Appliquer la vitesse sur toutes les arêtes concernées
+                // Mesure absolue, ou coefficient seul. Le choix se fait par arête selon sa vitesse OSM.
+                double absoluteForResolve = isRelativeSpeed ? Double.NaN : value;
+                double relativeForResolve = isRelativeSpeed ? value : (hasCompanionRelative ? relativeField : Double.NaN);
                 Double segmentMaxSpeed = null;
-                double segmentSpeedForDisplay;
-                if (isRelativeSpeed) {
-                    // relative_speed (0–1) : speed = value * max_speed par arête
-                    double firstRefSpeed = MAX_SPEED_KMH;
-                    for (Integer edgeId : edgeIds) {
-                        EdgeIteratorState state = graph.getEdgeIteratorState(edgeId, Integer.MIN_VALUE);
-                        if (state == null) continue;
-                        double refSpeed = MAX_SPEED_KMH;
-                        if (maxSpeedEnc != null) {
-                            double ms = maxSpeedEnc.getDecimal(false, state.getEdge(), graph.getEdgeAccess());
-                            if (Double.isFinite(ms) && ms > 0) refSpeed = ms;
-                        }
-                        if (segmentMaxSpeed == null) firstRefSpeed = refSpeed;
-                        double speed = value * refSpeed;
-                        if (!Double.isFinite(speed) || speed < 0) continue;
-                        speed = Math.min(speed, speedEnc.getMaxOrMaxStorableDecimal());
-                        GHUtility.setSpeed(speed, speed, accessEnc, speedEnc, state);
-                        if (segmentMaxSpeed == null) segmentMaxSpeed = firstRefSpeed;
+                double segmentSpeedForDisplay = Double.NaN;
+                double maxStorable = speedEnc.getMaxOrMaxStorableDecimal();
+                for (Integer edgeId : edgeIds) {
+                    EdgeIteratorState state = graph.getEdgeIteratorState(edgeId, Integer.MIN_VALUE);
+                    if (state == null) continue;
+                    double osmSpeed = readOsmMaxSpeedKmh(maxSpeedEnc, graph, state);
+                    double speed = resolveEdgeSpeedKmh(absoluteForResolve, relativeForResolve, osmSpeed);
+                    if (!Double.isFinite(speed) || speed < 0) continue;
+                    // Une mesure nulle fermerait l'arête ; on garde un plancher roulant.
+                    speed = Math.max(MIN_TRAFFIC_SPEED_KMH, Math.min(speed, maxStorable));
+                    GHUtility.setSpeed(speed, speed, accessEnc, speedEnc, state);
+                    if (Double.isNaN(segmentSpeedForDisplay)) {
+                        segmentSpeedForDisplay = speed;
+                        if (Double.isFinite(osmSpeed)) segmentMaxSpeed = osmSpeed;
                     }
-                    segmentSpeedForDisplay = value * firstRefSpeed;
-                } else {
-                    // speed (km/h) : comportement actuel
-                    if (!Double.isFinite(value) || value < 0) continue;
-                    double speed = Math.min(value, speedEnc.getMaxOrMaxStorableDecimal());
-                    for (Integer edgeId : edgeIds) {
-                        EdgeIteratorState state = graph.getEdgeIteratorState(edgeId, Integer.MIN_VALUE);
-                        if (state == null) continue;
-                        GHUtility.setSpeed(speed, speed, accessEnc, speedEnc, state);
-                        if (maxSpeedEnc != null && segmentMaxSpeed == null) {
-                            double ms = maxSpeedEnc.getDecimal(false, state.getEdge(), graph.getEdgeAccess());
-                            if (Double.isFinite(ms) && ms > 0) segmentMaxSpeed = ms;
-                        }
-                    }
-                    segmentSpeedForDisplay = speed;
                 }
+                if (Double.isNaN(segmentSpeedForDisplay)) continue;
                 // Affichage : géométrie envoyée (polyline complète) ou première arête en secours
                 List<double[]> coords = null;
                 if (entry.getPoints() != null && entry.getPoints().size() >= 2) {
@@ -244,6 +237,52 @@ public class DataFeedResource {
     }
 
     private static final double MAX_SPEED_KMH = 120.0;
+    /** Au-delà, la valeur encodée n'est pas une limitation OSM utilisable (sentinelle ou illimitée). */
+    private static final double MAX_PLAUSIBLE_OSM_SPEED_KMH = 150.0;
+    /** Plancher pour ne pas retirer l'arête du graphe quand la mesure est nulle. */
+    private static final double MIN_TRAFFIC_SPEED_KMH = 5.0;
+
+    /**
+     * OSM max speed of one edge, or NaN when the encoded value is missing or not a plausible limit.
+     *
+     * @param maxSpeedEnc - encoded max speed, absent when the graph has no max_speed
+     * @param graph - base graph that stores the encoded value
+     * @param state - edge being updated
+     * @return speed in km/h, or NaN
+     */
+    static double readOsmMaxSpeedKmh(DecimalEncodedValue maxSpeedEnc, BaseGraph graph, EdgeIteratorState state) {
+        if (maxSpeedEnc == null || state == null) return Double.NaN;
+        double maxSpeed = maxSpeedEnc.getDecimal(false, state.getEdge(), graph.getEdgeAccess());
+        if (!Double.isFinite(maxSpeed) || maxSpeed <= 0 || maxSpeed > MAX_PLAUSIBLE_OSM_SPEED_KMH) return Double.NaN;
+        return maxSpeed;
+    }
+
+    /**
+     * Chooses the speed written on an edge.
+     * A TomTom absolute speed below the OSM limit is kept.
+     * Above that limit, the TomTom coefficient is applied to the OSM speed.
+     * Without a coefficient, the OSM speed itself is the cap.
+     *
+     * @param absoluteSpeedKmh - measured speed in km/h, or NaN when the feed only has a coefficient
+     * @param relativeSpeed - TomTom coefficient in [0, 1], or NaN when absent
+     * @param osmSpeedKmh - OSM max speed of the edge, or NaN when unknown
+     * @return speed in km/h, or NaN when the feed has neither measurement nor coefficient
+     */
+    static double resolveEdgeSpeedKmh(double absoluteSpeedKmh, double relativeSpeed, double osmSpeedKmh) {
+        boolean hasAbsolute = Double.isFinite(absoluteSpeedKmh) && absoluteSpeedKmh >= 0;
+        boolean hasRelative = Double.isFinite(relativeSpeed) && relativeSpeed >= 0 && relativeSpeed <= 1;
+        boolean hasOsm = Double.isFinite(osmSpeedKmh) && osmSpeedKmh > 0;
+        if (hasAbsolute && hasOsm && absoluteSpeedKmh > osmSpeedKmh) {
+            return hasRelative ? relativeSpeed * osmSpeedKmh : osmSpeedKmh;
+        }
+        if (hasAbsolute) {
+            return absoluteSpeedKmh;
+        }
+        if (hasRelative) {
+            return relativeSpeed * (hasOsm ? osmSpeedKmh : MAX_SPEED_KMH);
+        }
+        return Double.NaN;
+    }
 
     private static String resolveVehicle(EncodingManager em) {
         List<String> vehicles = em.getVehicles();
@@ -351,14 +390,19 @@ public class DataFeedResource {
     }
 
     /**
-     * DTO for one datafeed entry. JSON: id, points (array of [lon,lat]), value, value_type, mode.
-     * value_type "speed" = value in km/h; "relative_speed" = value in [0, 1] (coefficient), applied as speed = value * max_speed per edge.
+     * DTO for one datafeed entry. JSON: id, points (array of [lon,lat]), value, value_type, mode,
+     * and optional relative_speed when value_type is speed.
+     * value_type "speed" = measured km/h. With relative_speed, an edge faster than its OSM max speed
+     * uses coefficient * OSM max speed; a slower measurement is kept.
+     * value_type "relative_speed" = coefficient in [0, 1], applied as value * max_speed per edge.
      */
     public static class DataFeedEntry {
         private String id;
         private List<List<Double>> points;
         private double value;
         private String value_type = "speed";
+        /** TomTom coefficient in [0, 1], used together with a measured speed. Absent when not sent. */
+        private Double relative_speed;
         private String mode = "REPLACE";
 
         public String getId() {
@@ -391,6 +435,14 @@ public class DataFeedResource {
 
         public void setValue_type(String value_type) {
             this.value_type = value_type;
+        }
+
+        public Double getRelative_speed() {
+            return relative_speed;
+        }
+
+        public void setRelative_speed(Double relative_speed) {
+            this.relative_speed = relative_speed;
         }
 
         public String getMode() {
