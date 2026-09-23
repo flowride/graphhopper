@@ -23,33 +23,40 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 public class DataFeedSpeedSelectionTest {
 
+    private static final double F = DataFeedResource.LIVE_TRAFFIC_SPEED_FACTOR;
+
     @Test
-    public void keepsAbsoluteSpeedWhenBelowOsmLimit() {
-        assertEquals(20, DataFeedResource.resolveEdgeSpeedKmh(20, 0.3, 50), 0.001);
+    public void prefersRelativeTimesOsmFreeflowEvenWhenAbsoluteLooksFast() {
+        // absolute 100 / rel 1 / osm 130 → 1.0 × 117 × factor
+        assertEquals(1.0 * 130 * 0.9 * F, DataFeedResource.resolveEdgeSpeedKmh(100, 1, 130), 0.001);
     }
 
     @Test
-    public void appliesCoefficientWhenAbsoluteSpeedExceedsOsmLimit() {
-        assertEquals(0.94 * 31, DataFeedResource.resolveEdgeSpeedKmh(45, 0.94, 31), 0.001);
+    public void appliesRelativeToOsmFreeflowWhenCongested() {
+        // absolute 20 / rel 0.3 / osm 50 → 0.3 × 45 × factor
+        assertEquals(0.3 * 50 * 0.9 * F, DataFeedResource.resolveEdgeSpeedKmh(20, 0.3, 50), 0.001);
     }
 
     @Test
-    public void capsAtOsmLimitWhenCoefficientIsMissing() {
-        assertEquals(31, DataFeedResource.resolveEdgeSpeedKmh(45, Double.NaN, 31), 0.001);
+    public void withoutRelativeCapsAbsoluteByOsmFreeflowThenAppliesFactor() {
+        // min(absolu, osm×0.9)×factor
+        assertEquals(Math.min(45, 31 * 0.9) * F, DataFeedResource.resolveEdgeSpeedKmh(45, Double.NaN, 31), 0.001);
+        assertEquals(Math.min(20, 50 * 0.9) * F, DataFeedResource.resolveEdgeSpeedKmh(20, Double.NaN, 50), 0.001);
     }
 
     @Test
-    public void keepsAbsoluteSpeedOnAFastRoadBelowItsLimit() {
-        assertEquals(100, DataFeedResource.resolveEdgeSpeedKmh(100, 1, 130), 0.001);
+    public void appliesCoefficientAloneToOsmFreeflow() {
+        assertEquals(0.5 * 50 * 0.9 * F, DataFeedResource.resolveEdgeSpeedKmh(Double.NaN, 0.5, 50), 0.001);
     }
 
     @Test
-    public void appliesCoefficientAloneToOsmSpeed() {
-        assertEquals(25, DataFeedResource.resolveEdgeSpeedKmh(Double.NaN, 0.5, 50), 0.001);
+    public void appliesCoefficientAloneAgainstDefaultFreeflowWhenOsmSpeedIsMissing() {
+        // 0.5 × 120 × 0.9 × factor
+        assertEquals(0.5 * 120 * 0.9 * F, DataFeedResource.resolveEdgeSpeedKmh(Double.NaN, 0.5, Double.NaN), 0.001);
     }
 
     @Test
-    public void appliesCoefficientAloneAgainstDefaultWhenOsmSpeedIsMissing() {
-        assertEquals(60, DataFeedResource.resolveEdgeSpeedKmh(Double.NaN, 0.5, Double.NaN), 0.001);
+    public void keepsAbsoluteWithoutOsmUncappedThenAppliesFactor() {
+        assertEquals(80 * F, DataFeedResource.resolveEdgeSpeedKmh(80, Double.NaN, Double.NaN), 0.001);
     }
 }

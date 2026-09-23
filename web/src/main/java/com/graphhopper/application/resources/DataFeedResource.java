@@ -58,9 +58,10 @@ import java.util.concurrent.locks.ReentrantLock;
  * Points are in GeoJSON order (longitude, latitude). Each point of the polyline is snapped to find edges.
  * <p>
  * value_type: "speed" — value is the measured speed in km/h. Optional relative_speed is the TomTom
- * coefficient in [0, 1]. Per edge, the measured speed is kept when it is below the OSM max speed;
- * when it is above, the coefficient is applied to that OSM speed so the result does not exceed it.
- * value_type: "relative_speed" — value in [0, 1]; per-edge speed = value * max_speed (max_speed from the graph or 120 km/h).
+ * coefficient in [0, 1]. Per edge the freeflow reference is OSM max × 0.9 (same convention as
+ * CarAverageSpeedParser). When relative_speed is present it is applied to that reference; otherwise
+ * the absolute speed is capped by the reference. The result is then scaled by LIVE_TRAFFIC_SPEED_FACTOR.
+ * value_type: "relative_speed" — value in [0, 1]; per-edge speed = value × freeflow reference × factor.
  */
 @Path("datafeed")
 public class DataFeedResource {
@@ -241,6 +242,16 @@ public class DataFeedResource {
     private static final double MAX_PLAUSIBLE_OSM_SPEED_KMH = 150.0;
     /** Plancher pour ne pas retirer l'arête du graphe quand la mesure est nulle. */
     private static final double MIN_TRAFFIC_SPEED_KMH = 5.0;
+    /**
+     * Same factor as CarAverageSpeedParser.applyMaxSpeed: import freeflow is maxspeed × 0.9.
+     */
+    static final double OSM_FREEFLOW_FACTOR = 0.9;
+    /**
+     * Extra conservatism so live routes stay closer to TomTom calculateRoute when flow tiles look free.
+     * Tunable constant: change only this value if Nice→museum still drifts after a re-push.
+     * Calibrated to 0.45 after 0.70 still left live ~15 min faster than TomTom on green tiles.
+     */
+    static final double LIVE_TRAFFIC_SPEED_FACTOR = 0.45;
 
     /**
      * OSM max speed of one edge, or NaN when the encoded value is missing or not a plausible limit.
@@ -258,10 +269,22 @@ public class DataFeedResource {
     }
 
     /**
+     * Freeflow reference used as the base for traffic coefficients.
+     * Matches GraphHopper OSM import: legal max × 0.9, or 120 × 0.9 when max is unknown.
+     *
+     * @param osmSpeedKmh - OSM max speed of the edge, or NaN when unknown
+     * @return reference speed in km/h
+     */
+    static double freeflowReferenceKmh(double osmSpeedKmh) {
+        boolean hasOsm = Double.isFinite(osmSpeedKmh) && osmSpeedKmh > 0;
+        return (hasOsm ? osmSpeedKmh : MAX_SPEED_KMH) * OSM_FREEFLOW_FACTOR;
+    }
+
+    /**
      * Chooses the speed written on an edge.
-     * A TomTom absolute speed below the OSM limit is kept.
-     * Above that limit, the TomTom coefficient is applied to the OSM speed.
-     * Without a coefficient, the OSM speed itself is the cap.
+     * When a TomTom coefficient is present it is applied to the freeflow reference (OSM max × 0.9).
+     * Otherwise an absolute measurement is capped by that reference.
+     * The candidate is then scaled by {@link #LIVE_TRAFFIC_SPEED_FACTOR}.
      *
      * @param absoluteSpeedKmh - measured speed in km/h, or NaN when the feed only has a coefficient
      * @param relativeSpeed - TomTom coefficient in [0, 1], or NaN when absent
@@ -272,16 +295,17 @@ public class DataFeedResource {
         boolean hasAbsolute = Double.isFinite(absoluteSpeedKmh) && absoluteSpeedKmh >= 0;
         boolean hasRelative = Double.isFinite(relativeSpeed) && relativeSpeed >= 0 && relativeSpeed <= 1;
         boolean hasOsm = Double.isFinite(osmSpeedKmh) && osmSpeedKmh > 0;
-        if (hasAbsolute && hasOsm && absoluteSpeedKmh > osmSpeedKmh) {
-            return hasRelative ? relativeSpeed * osmSpeedKmh : osmSpeedKmh;
-        }
-        if (hasAbsolute) {
-            return absoluteSpeedKmh;
-        }
+        double osmRef = freeflowReferenceKmh(osmSpeedKmh);
+
+        double candidate;
         if (hasRelative) {
-            return relativeSpeed * (hasOsm ? osmSpeedKmh : MAX_SPEED_KMH);
+            candidate = relativeSpeed * osmRef;
+        } else if (hasAbsolute) {
+            candidate = hasOsm ? Math.min(absoluteSpeedKmh, osmRef) : absoluteSpeedKmh;
+        } else {
+            return Double.NaN;
         }
-        return Double.NaN;
+        return candidate * LIVE_TRAFFIC_SPEED_FACTOR;
     }
 
     private static String resolveVehicle(EncodingManager em) {
@@ -392,9 +416,10 @@ public class DataFeedResource {
     /**
      * DTO for one datafeed entry. JSON: id, points (array of [lon,lat]), value, value_type, mode,
      * and optional relative_speed when value_type is speed.
-     * value_type "speed" = measured km/h. With relative_speed, an edge faster than its OSM max speed
-     * uses coefficient * OSM max speed; a slower measurement is kept.
-     * value_type "relative_speed" = coefficient in [0, 1], applied as value * max_speed per edge.
+     * value_type "speed" = measured km/h. With relative_speed, speed = relative × (OSM max × 0.9)
+     * × LIVE_TRAFFIC_SPEED_FACTOR; without relative, absolute is capped by that freeflow reference
+     * then scaled by the same factor.
+     * value_type "relative_speed" = coefficient in [0, 1], applied as value × freeflow × factor.
      */
     public static class DataFeedEntry {
         private String id;
